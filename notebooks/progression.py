@@ -48,8 +48,8 @@ def _(cost, go, income, levels, mo):
     fig.update_layout(
         title="XP Cost vs Income",
         xaxis_title="Level",
-        yaxis=dict(title="XP Cost", titlefont=dict(color="#636EFA")),
-        yaxis2=dict(title="Income", titlefont=dict(color="#00CC96"),
+        yaxis=dict(title="XP Cost", title_font=dict(color="#636EFA")),
+        yaxis2=dict(title="Income", title_font=dict(color="#00CC96"),
                     overlaying="y", side="right"),
         hovermode="x unified",
     )

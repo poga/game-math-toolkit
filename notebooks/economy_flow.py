@@ -77,8 +77,8 @@ def _(go, history, mo, np, ticks):
     fig.update_layout(
         title="Stock Levels Over Time",
         xaxis_title="Tick",
-        yaxis=dict(title="Gold", titlefont=dict(color="#FFD700")),
-        yaxis2=dict(title="Reputation", titlefont=dict(color="#636EFA"),
+        yaxis=dict(title="Gold", title_font=dict(color="#FFD700")),
+        yaxis2=dict(title="Reputation", title_font=dict(color="#636EFA"),
                     overlaying="y", side="right"),
         hovermode="x unified",
     )

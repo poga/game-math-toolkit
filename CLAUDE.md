@@ -140,18 +140,26 @@ for t in range(ticks):
 PRD implementation template:
 ```python
 def prd_constant(p):
-    """Binary search for PRD constant C given nominal probability p."""
+    """Binary search for PRD constant C given nominal probability p.
+
+    Finds C such that effective_rate = 1/E[attempts] equals p.
+    """
+    if p <= 0:
+        return 0.0
+    if p >= 1:
+        return 1.0
     lo, hi = 0.0, p
     for _ in range(100):
         mid = (lo + hi) / 2
-        expected_p = 0.0
-        prob_not_yet = 1.0
         max_n = max(1, int(np.ceil(1.0 / mid))) if mid > 0 else 1
+        expected_attempts = 0.0
+        prob_not_yet = 1.0
         for n in range(1, max_n + 1):
             p_n = min(1.0, mid * n)
-            expected_p += p_n * prob_not_yet
+            expected_attempts += n * p_n * prob_not_yet
             prob_not_yet *= (1 - p_n)
-        if expected_p > p:
+        effective_p = 1.0 / expected_attempts if expected_attempts > 0 else 0
+        if effective_p > p:
             hi = mid
         else:
             lo = mid
