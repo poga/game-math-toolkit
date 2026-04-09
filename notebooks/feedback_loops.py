@@ -25,6 +25,8 @@ def _(mo):
                              show_value=True, label="Hades: Lasting Consequences ranks")
     mk_catch_up = mo.ui.slider(start=0.0, stop=0.5, step=0.05, value=0.3,
                                 show_value=True, label="MK: Catch-up strength")
+    mk_players = mo.ui.slider(start=4, stop=12, step=1, value=8,
+                               show_value=True, label="MK: Number of players")
     mo.vstack([
         mo.md("## How Feedback Loops Shape the Arc of a Run"),
         mo.md("Three feedback loop designs from shipped games. Each creates a different emotional arc — tightening vice, controlled risk, or rubber band."),
@@ -34,15 +36,15 @@ def _(mo):
         mo.md("**Hades Heat** — Player selects difficulty. Hard Labor = +20% damage/rank. Lasting Consequences = -25% healing/rank."),
         mo.hstack([hades_hl, hades_lc]),
         mo.md("**Mario Kart** — Last place gets best items. Automatic rubber band."),
-        mk_catch_up,
+        mo.hstack([mk_catch_up, mk_players]),
     ])
     return (ats_imp_rate, ats_rep_rate, ats_drain,
-            hades_hl, hades_lc, mk_catch_up)
+            hades_hl, hades_lc, mk_catch_up, mk_players)
 
 
 @app.cell
 def _(ats_imp_rate, ats_rep_rate, ats_drain,
-      hades_hl, hades_lc, mk_catch_up, np):
+      hades_hl, hades_lc, mk_catch_up, mk_players, np):
     _rng = np.random.default_rng(42)
 
     # --- Against the Storm: dual-bar race ---
@@ -84,7 +86,7 @@ def _(ats_imp_rate, ats_rep_rate, ats_drain,
 
     # --- Mario Kart: catch-up ---
     _mk_laps = 30
-    _mk_n = 8
+    _mk_n = mk_players.value
     _base_spd = np.linspace(0.8, 1.2, _mk_n)
     _dist = np.linspace(0, 0.01, _mk_n)
     mk_positions = np.zeros((_mk_laps, _mk_n))
@@ -221,8 +223,143 @@ def _(mk_positions, mk_catch_up, go, mo, np):
 
 
 @app.cell
+def _(ats_imp_rate, ats_rep_rate, ats_drain,
+      hades_hl, hades_lc, mk_catch_up, mk_players, np):
+    _n_runs = 200
+    _rng = np.random.default_rng(99)
+
+    # --- Monte Carlo: Against the Storm ---
+    _ats_n = 200
+    _ats_tensions = np.zeros((_n_runs, _ats_n))
+    _ats_behind_mid = np.zeros(_n_runs, dtype=bool)
+    _ats_won = np.zeros(_n_runs, dtype=bool)
+    for _run in range(_n_runs):
+        _i, _r, _done = 0.0, 0.0, False
+        for _t in range(_ats_n):
+            if not _done:
+                _i += ats_imp_rate.value
+                if _rng.random() < ats_rep_rate.value:
+                    _r += 1.0
+                    _i = max(0, _i - ats_drain.value)
+                if _i >= 14.0 or _r >= 15.0:
+                    _done = True
+            _ats_tensions[_run, _t] = min(_i, 14.0) / 14.0
+        _ats_behind_mid[_run] = _ats_tensions[_run, 100] > 0.5
+        _ats_won[_run] = _r >= 15.0
+
+    # --- Monte Carlo: Hades ---
+    _hades_n = 40
+    _hades_tensions = np.zeros((_n_runs, _hades_n))
+    _hades_behind_mid = np.zeros(_n_runs, dtype=bool)
+    _hades_survived = np.zeros(_n_runs, dtype=bool)
+    _dmg_m = 1 + 0.20 * hades_hl.value
+    _heal_m = max(0.0, 1 - 0.25 * hades_lc.value)
+    for _run in range(_n_runs):
+        _hp = 200.0
+        for _rm in range(_hades_n):
+            _hp -= 25.0 * _dmg_m * _rng.uniform(0.5, 1.5)
+            if _rm % 4 == 3:
+                _hp = min(200.0, _hp + 30.0 * _heal_m)
+            _hp = max(0, _hp)
+            _hades_tensions[_run, _rm] = 1 - _hp / 200.0
+        _hades_behind_mid[_run] = _hades_tensions[_run, 20] > 0.5
+        _hades_survived[_run] = _hp > 0
+
+    # --- Monte Carlo: Mario Kart ---
+    _mk_laps = 30
+    _mk_n = mk_players.value
+    _mk_tensions = np.zeros((_n_runs, _mk_laps))
+    _mk_behind_mid = np.zeros(_n_runs, dtype=bool)
+    _mk_top_half = np.zeros(_n_runs, dtype=bool)
+    _base_spd = np.linspace(0.8, 1.2, _mk_n)
+    for _run in range(_n_runs):
+        _dist = np.linspace(0, 0.01, _mk_n)
+        _final_pos = 0
+        for _lap in range(_mk_laps):
+            _ord = np.argsort(-_dist)
+            _pos = np.empty_like(_ord)
+            _pos[_ord] = np.arange(1, _mk_n + 1)
+            _boost = mk_catch_up.value * (_pos - 1) / (_mk_n - 1)
+            _dist += _base_spd + _rng.normal(0, 0.15, _mk_n) + _boost
+            _mk_tensions[_run, _lap] = (_pos[0] - 1) / (_mk_n - 1)
+            if _lap == 14:
+                _mk_behind_mid[_run] = _pos[0] > _mk_n // 2
+            _final_pos = _pos[0]
+        _mk_top_half[_run] = _final_pos <= _mk_n // 2
+
+    # Comeback: won/survived/top-half given behind at midpoint
+    def _comeback(behind, success):
+        _n_behind = np.sum(behind)
+        if _n_behind == 0:
+            return 0.0
+        return np.sum(behind & success) / _n_behind
+
+    ats_comeback = _comeback(_ats_behind_mid, _ats_won)
+    hades_comeback = _comeback(_hades_behind_mid, _hades_survived)
+    mk_comeback = _comeback(_mk_behind_mid, _mk_top_half)
+
+    # Variance over time (std of tension across runs)
+    ats_var = np.std(_ats_tensions, axis=0)
+    hades_var = np.std(_hades_tensions, axis=0)
+    mk_var = np.std(_mk_tensions, axis=0)
+
+    return (ats_comeback, hades_comeback, mk_comeback,
+            ats_var, hades_var, mk_var)
+
+
+@app.cell
+def _(ats_comeback, hades_comeback, mk_comeback, go, mo):
+    _labels = ["Against the Storm", "Hades", "Mario Kart"]
+    _values = [ats_comeback * 100, hades_comeback * 100, mk_comeback * 100]
+    _fig = go.Figure(data=[go.Bar(
+        x=_labels, y=_values,
+        marker_color=["#636EFA", "#EF553B", "#00CC96"],
+    )])
+    _fig.update_layout(
+        title="Comeback Probability (Win Rate When Behind at Midpoint)",
+        yaxis_title="Comeback rate (%)",
+        yaxis_range=[0, 100],
+    )
+    mo.vstack([
+        mo.md("### Comeback Probability — Can You Recover?"),
+        mo.md(f"200 Monte Carlo runs. If you're behind at the midpoint, "
+              f"what are your odds? Against the Storm: **{ats_comeback:.0%}**. "
+              f"Hades: **{hades_comeback:.0%}**. "
+              f"Mario Kart: **{mk_comeback:.0%}**."),
+        _fig,
+    ])
+    return
+
+
+@app.cell
+def _(ats_var, hades_var, mk_var, go, mo, np):
+    _fig = go.Figure()
+    _fig.add_trace(go.Scatter(x=np.linspace(0, 1, len(ats_var)), y=ats_var,
+                               name="Against the Storm",
+                               line=dict(color="#636EFA", width=2)))
+    _fig.add_trace(go.Scatter(x=np.linspace(0, 1, len(hades_var)), y=hades_var,
+                               name="Hades",
+                               line=dict(color="#EF553B", width=2)))
+    _fig.add_trace(go.Scatter(x=np.linspace(0, 1, len(mk_var)), y=mk_var,
+                               name="Mario Kart",
+                               line=dict(color="#00CC96", width=2)))
+    _fig.update_layout(
+        title="Variance Over Time — Converge, Oscillate, or Diverge?",
+        xaxis_title="Run progress",
+        yaxis_title="Tension std dev across 200 runs",
+        hovermode="x unified",
+    )
+    mo.vstack([
+        mo.md("### Variance Over Time — System Stability"),
+        mo.md("Rising variance = outcomes diverge (snowball). Falling = converge (catch-up dominates). Flat = stable. Oscillating = rubber band."),
+        _fig,
+    ])
+    return
+
+
+@app.cell
 def _(ats_tension, ats_imp, ats_rep, hades_tension, hades_hp,
-      mk_tension, mk_positions, mo, np):
+      mk_tension, mk_positions, ats_comeback, hades_comeback, mk_comeback, mo, np):
     # Against the Storm outcome
     _win = np.any(ats_rep >= 15)
     _lose = np.any(ats_imp >= 14)
@@ -262,6 +399,7 @@ def _(ats_tension, ats_imp, ats_rep, hades_tension, hades_hp,
 | Tension shape | {_trend(ats_tension)} | {_trend(hades_tension)} | {_trend(mk_tension)} |
 | Outcome | {_ats_out} | {_hades_out} | Weakest finished P{int(mk_positions[-1, 0])} |
 | Peak tension | {np.max(ats_tension):.2f} | {np.max(hades_tension):.2f} | {np.max(mk_tension):.2f} |
+| Comeback rate | {ats_comeback:.0%} | {hades_comeback:.0%} | {mk_comeback:.0%} |
 
 **Design insight:**
 - **Against the Storm:** The coupling (rep drains impatience) is the entire design. Real values: impatience +0.255/min, each rep gain drains 1.0 impatience. Strong drain → winning cascades. Weak drain → grinding race.

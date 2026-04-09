@@ -126,6 +126,39 @@ def _(ticks, unbounded, victoria3, logarithmic, p_base, shock_tick, go, mo, np):
 
 
 @app.cell
+def _(ticks, unbounded, victoria3, logarithmic, go, mo, np):
+    _t = np.arange(ticks)
+    _window = 20
+
+    def _spread(prices):
+        _result = np.zeros(len(prices))
+        for _i in range(len(prices)):
+            _s = max(0, _i - _window + 1)
+            _result[_i] = np.max(prices[_s:_i + 1]) - np.min(prices[_s:_i + 1])
+        return _result
+
+    _fig = go.Figure()
+    _fig.add_trace(go.Scatter(x=_t, y=_spread(unbounded), name="Unbounded",
+                               line=dict(color="#EF553B")))
+    _fig.add_trace(go.Scatter(x=_t, y=_spread(victoria3), name="Victoria 3",
+                               line=dict(color="#636EFA")))
+    _fig.add_trace(go.Scatter(x=_t, y=_spread(logarithmic), name="Logarithmic",
+                               line=dict(color="#00CC96")))
+    _fig.update_layout(
+        title="Merchant Profit Window (Price Spread Over 20-Tick Window)",
+        xaxis_title="Tick",
+        yaxis_title="Max spread (buy low, sell high)",
+        hovermode="x unified",
+    )
+    mo.vstack([
+        mo.md("### Merchant Profit Window — Arbitrage Opportunity"),
+        mo.md("Rolling 20-tick price range for each model. Wider spread = more profit for merchants who time trades. Bounded models cap arbitrage. Unbounded models create gold-rush windows."),
+        _fig,
+    ])
+    return
+
+
+@app.cell
 def _(unbounded, victoria3, logarithmic, p_base, k, mo, np):
     _base = p_base.value
     mo.md(f"""### Summary
