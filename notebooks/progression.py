@@ -13,94 +13,135 @@ def _():
 
 @app.cell
 def _(mo):
-    exponent = mo.ui.slider(start=1.0, stop=3.0, step=0.1, value=1.8,
-                             show_value=True, label="Growth exponent (k)")
-    base_cost = mo.ui.slider(start=100, stop=2000, step=100, value=500,
-                              show_value=True, label="Base cost (a)")
-    income_rate = mo.ui.slider(start=1, stop=30, step=1, value=10,
-                                show_value=True, label="Income per level")
-    income_exp = mo.ui.slider(start=0.3, stop=1.5, step=0.1, value=0.9,
-                               show_value=True, label="Income exponent")
+    max_level = mo.ui.slider(start=20, stop=99, step=1, value=99,
+                              show_value=True, label="Max level")
+    income_exp = mo.ui.slider(start=0.0, stop=1.5, step=0.1, value=0.5,
+                               show_value=True, label="Income growth exponent")
     mo.vstack([
-        mo.md("## Progression Curve Parameters"),
-        mo.md("Adjust these to shape how leveling feels. The key output is **time per level** — the ratio players actually experience."),
-        mo.hstack([exponent, base_cost]),
-        mo.hstack([income_rate, income_exp]),
+        mo.md("## How Leveling Feels Across Real Games"),
+        mo.md("Four proven XP formulas from shipped games. The **time-per-level** chart shows what the player actually experiences — not the raw math, but the grind."),
+        mo.hstack([max_level, income_exp]),
     ])
-    return base_cost, exponent, income_exp, income_rate
+    return (max_level, income_exp)
 
 
 @app.cell
-def _(base_cost, exponent, income_exp, income_rate, np):
-    levels = np.arange(1, 101)
-    cost = base_cost.value * levels ** exponent.value
-    income = income_rate.value * levels ** income_exp.value
-    time_to_level = cost / income
-    return cost, income, levels, time_to_level
+def _(max_level, income_exp, np):
+    max_lvl = max_level.value
+    levels = np.arange(2, max_lvl + 1, dtype=float)
+
+    # OSRS: XP(L) = floor(sum_{x=1}^{L-1} floor(x + 300 * 2^(x/7)) / 4)
+    _osrs_cum = np.zeros(max_lvl + 1)
+    _running = 0.0
+    for _x in range(1, max_lvl):
+        _running += np.floor(_x + 300 * 2 ** (_x / 7))
+        _osrs_cum[_x + 1] = np.floor(_running / 4)
+    osrs_cost = np.diff(_osrs_cum)[1:]
+
+    # Pokemon Medium Fast: cumulative = L^3
+    _all = np.arange(0, max_lvl + 1, dtype=float)
+    pokemon_cost = np.diff(_all ** 3)[1:]
+
+    # D&D 5e: cumulative ≈ 500 * L * (L - 1)
+    dnd_cost = np.diff(500 * _all * (_all - 1))[1:]
+
+    # Civ 6 population: food(n) = 15 + 8*(n-1) + (n-1)^1.5
+    civ6_cost = 15 + 8 * (levels - 1) + (levels - 1) ** 1.5
+
+    # Shared income model for fair comparison
+    _income = levels ** income_exp.value
+
+    # Time per level = cost / income, normalized so first level = 1.0
+    def _norm(cost):
+        t = cost / _income
+        return t / t[0] if t[0] > 0 else t
+
+    osrs_time = _norm(osrs_cost)
+    pokemon_time = _norm(pokemon_cost)
+    dnd_time = _norm(dnd_cost)
+    civ6_time = _norm(civ6_cost)
+
+    return (levels, max_lvl, osrs_cost, pokemon_cost, dnd_cost, civ6_cost,
+            osrs_time, pokemon_time, dnd_time, civ6_time)
 
 
 @app.cell
-def _(cost, go, income, levels, mo):
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=levels, y=cost, name="XP Cost", line=dict(color="#636EFA")))
-    fig.add_trace(go.Scatter(x=levels, y=income, name="Income", line=dict(color="#00CC96"),
-                              yaxis="y2"))
-    fig.update_layout(
-        title="XP Cost vs Income",
-        xaxis_title="Level",
-        yaxis=dict(title="XP Cost", title_font=dict(color="#636EFA")),
-        yaxis2=dict(title="Income", title_font=dict(color="#00CC96"),
-                    overlaying="y", side="right"),
-        hovermode="x unified",
-    )
-    mo.vstack([
-        mo.md("### Cost and Income Curves"),
-        mo.md("Cost (left axis) is what the player pays. Income (right axis) is what they earn. The gap between them determines the grind."),
-        fig,
-    ])
-    return
-
-
-@app.cell
-def _(exponent, go, income_exp, levels, mo, time_to_level):
-    fig2 = go.Figure()
-    fig2.add_trace(go.Scatter(x=levels, y=time_to_level, name="Time per Level",
+def _(levels, osrs_time, pokemon_time, dnd_time, civ6_time, go, mo):
+    _fig = go.Figure()
+    _fig.add_trace(go.Scatter(x=levels, y=osrs_time, name="OSRS (quarter-exponential)",
                                line=dict(color="#EF553B", width=3)))
-    fig2.update_layout(
-        title="Time per Level (Cost / Income) — What the Player Feels",
+    _fig.add_trace(go.Scatter(x=levels, y=pokemon_time, name="Pokemon (cubic)",
+                               line=dict(color="#636EFA", width=2)))
+    _fig.add_trace(go.Scatter(x=levels, y=dnd_time, name="D&D 5e (quadratic)",
+                               line=dict(color="#00CC96", width=2)))
+    _fig.add_trace(go.Scatter(x=levels, y=civ6_time, name="Civ 6 pop (n^1.5)",
+                               line=dict(color="#AB63FA", width=2)))
+    _fig.update_layout(
+        title="Time per Level (Normalized) — What the Player Feels",
         xaxis_title="Level",
-        yaxis_title="Time (arbitrary units)",
+        yaxis_title="Relative time (level 2 = 1.0)",
         hovermode="x unified",
     )
-    ratio = exponent.value - income_exp.value
-    if ratio > 0.5:
-        shape = "Rising steeply — late game becomes a heavy grind"
-    elif ratio > 0:
-        shape = "Rising gently — moderate pacing"
-    else:
-        shape = "Flat or falling — leveling gets easier over time"
     mo.vstack([
         mo.md("### Time per Level — The Curve That Matters"),
-        mo.md(f"With cost exponent **{exponent.value}** and income exponent **{income_exp.value}**, the effective grind exponent is **{ratio:.1f}**. {shape}"),
-        fig2,
+        mo.md("All curves share the same income growth. Differences come entirely from the XP formula. Higher = more grind at that level. OSRS's exponential tail dwarfs everything else."),
+        _fig,
     ])
     return
 
 
 @app.cell
-def _(cost, income, levels, mo, time_to_level):
-    mid = len(levels) // 2
+def _(levels, osrs_cost, pokemon_cost, dnd_cost, civ6_cost, go, mo):
+    _fig = go.Figure()
+    _fig.add_trace(go.Scatter(x=levels, y=osrs_cost, name="OSRS",
+                               line=dict(color="#EF553B")))
+    _fig.add_trace(go.Scatter(x=levels, y=pokemon_cost, name="Pokemon",
+                               line=dict(color="#636EFA")))
+    _fig.add_trace(go.Scatter(x=levels, y=dnd_cost, name="D&D 5e",
+                               line=dict(color="#00CC96")))
+    _fig.add_trace(go.Scatter(x=levels, y=civ6_cost, name="Civ 6",
+                               line=dict(color="#AB63FA")))
+    _fig.update_layout(
+        title="Raw XP Cost per Level (Log Scale)",
+        xaxis_title="Level",
+        yaxis_title="XP cost per level",
+        yaxis_type="log",
+        hovermode="x unified",
+    )
+    mo.vstack([
+        mo.md("### Raw Cost Curves"),
+        mo.md("Log scale reveals the growth rate. Straight line on log scale = exponential growth. OSRS curves upward even on log scale — it's super-exponential."),
+        _fig,
+    ])
+    return
+
+
+@app.cell
+def _(levels, max_lvl, osrs_cost, pokemon_cost, dnd_cost, civ6_cost,
+      osrs_time, pokemon_time, dnd_time, civ6_time, mo, np):
+    def _grind(time_arr):
+        n = max(1, len(time_arr) // 10)
+        return np.mean(time_arr[-n:]) / np.mean(time_arr[:n])
+
+    def _inflection(time_arr):
+        idx = np.argmax(time_arr > 2.0)
+        return str(int(levels[idx])) if time_arr[idx] > 2.0 else "never"
+
     mo.md(f"""### Summary
 
-| Metric | Level 1 | Level {levels[mid]} | Level {levels[-1]} |
-|---|---|---|---|
-| XP Cost | {cost[0]:,.0f} | {cost[mid]:,.0f} | {cost[-1]:,.0f} |
-| Income | {income[0]:,.1f} | {income[mid]:,.1f} | {income[-1]:,.1f} |
-| Time per Level | {time_to_level[0]:,.1f} | {time_to_level[mid]:,.1f} | {time_to_level[-1]:,.1f} |
-| Cost ratio (last/first) | | | {cost[-1]/cost[0]:,.0f}x |
-| Time ratio (last/first) | | | {time_to_level[-1]/time_to_level[0]:,.1f}x |
+| Metric | OSRS | Pokemon | D&D 5e | Civ 6 |
+|---|---|---|---|---|
+| Total XP to level {max_lvl} | {np.sum(osrs_cost):,.0f} | {np.sum(pokemon_cost):,.0f} | {np.sum(dnd_cost):,.0f} | {np.sum(civ6_cost):,.0f} |
+| Grind ratio (last 10% / first 10%) | {_grind(osrs_time):.1f}x | {_grind(pokemon_time):.1f}x | {_grind(dnd_time):.1f}x | {_grind(civ6_time):.1f}x |
+| Level where grind > 2x baseline | {_inflection(osrs_time)} | {_inflection(pokemon_time)} | {_inflection(dnd_time)} | {_inflection(civ6_time)} |
 
-**Reference points:** Pokemon uses exponent 3 (cubic). Civ 6 uses ~1.5. D&D 5e uses ~2 (quadratic). Factorio infinite research uses exponential (1.5^level) matched against exponential income growth.
+**Key insight:** OSRS level 92 is exactly 50% of the total XP to 99 — half the entire grind is in the last 7 levels. This is the quarter-exponential in action.
+
+**Formulas:**
+- **OSRS:** `XP(L) = floor(sum(floor(x + 300 * 2^(x/7)) / 4) for x=1..L-1)` — exponential sum, steepest endgame
+- **Pokemon Medium Fast:** `XP(L) = L^3` — clean cubic, 1M XP to level 100
+- **D&D 5e:** `XP(L) ≈ 500 * L * (L-1)` — quadratic, gentler because each level carries more weight
+- **Civ 6 pop:** `food(n) = 15 + 8*(n-1) + (n-1)^1.5` — super-linear, keeps cities growing without stalling
 """)
     return
 
