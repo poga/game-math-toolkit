@@ -8,8 +8,7 @@ def _():
     import marimo as mo
     import numpy as np
     import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-    return go, make_subplots, mo, np
+    return go, mo, np
 
 
 @app.cell
@@ -41,7 +40,7 @@ def _(base_cost, exponent, income_exp, income_rate, np):
 
 
 @app.cell
-def _(cost, go, income, levels, mo, time_to_level):
+def _(cost, go, income, levels, mo):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=levels, y=cost, name="XP Cost", line=dict(color="#636EFA")))
     fig.add_trace(go.Scatter(x=levels, y=income, name="Income", line=dict(color="#00CC96"),
@@ -89,7 +88,7 @@ def _(exponent, go, income_exp, levels, mo, time_to_level):
 
 
 @app.cell
-def _(cost, income, levels, mo, np, time_to_level):
+def _(cost, income, levels, mo, time_to_level):
     mid = len(levels) // 2
     mo.md(f"""### Summary
 
