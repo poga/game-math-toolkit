@@ -1,0 +1,10 @@
+[project]
+name = "game-math-toolkit"
+version = "0.1.0"
+description = "Interactive game systems math toolkit — Marimo notebooks for progression, economy, combat, and probability design"
+requires-python = ">=3.10"
+dependencies = [
+    "marimo>=0.9.0",
+    "numpy>=1.24.0",
+    "plotly>=5.18.0",
+]
