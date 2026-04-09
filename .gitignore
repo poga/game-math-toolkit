@@ -2,3 +2,5 @@
 __pycache__/
 *.pyc
 .marimo/
+notebooks/__marimo__/
+.superpowers/
